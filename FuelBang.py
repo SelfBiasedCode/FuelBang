@@ -1,12 +1,27 @@
 """FuelBang
 
 Usage:
-  FuelBang.py --L1=<input_L1> --L2=<input_L2> --L1_prev=<previous_L1> --L1_base=<base_L1> --out=<output_directory>
+  FuelBang.py --L1=<input_L1> --L2=<input_L2> --L1_prev=<previous_L1> [--L1_base=<base_L1>] --out=<output_directory> [--ff_rpm=<full_fuel_rpm>] [--ff_press=<full_fuel_press>] [--sf=<smoothing_factor>] [--pw=<pressure_weight>] (--linear | --relativeLinear | --relative)
 
 Options:
+  --L1=<input_L1>               The path to the L1 table to be modified. Using the stock map is recommended to obtain stable results.
+  --L2=<input_L2>               The path to the L2 table to be modified. Using the stock map is recommended to obtain stable results.
+  --L1_prev=<previous_L1>       The path to the previous (or a different) L1 table. For comparison only.
+  --L1_base=<base_L1>           The path to the base (or a different) L1 table. For comparison only. If omitted, input_L1 will be used.
+  --out=<output_directory>      The output directory for all processed results. [default: Processed]
+  --ff_rpm=<full_fuel_rpm>      The minimum engine speed to include in the modification range. [default: 1700]
+  --ff_press=<full_fuel_press>  The maximum pressure to include in the modification range, given in hPa. [default: 330]
+  --sf=<smoothing_factor>       Dimensionless fractional factor for edge smoothing. Value dependent on the smoothing algorithm. [default: 5.0]
+  --pw=<pressure_weight>        A fractional weighting factor between 0 (smooth only along rows/RPM) and 1 (smooth only
+        along columns/pressure) [default: 0.5]
+  --linear                      Use linear smoothing.
+  --relative                    Use relative smoothing.
+  --relativeLinear              Use relative and linear smoothing.
+  -h --help                     Show this screen.
+  --version                     Show version.
 
-  -h --help     Show this screen.
-  --version     Show version.
+Minimum Example: FuelBang.py --L1=base_L1.csv --L2=base_L2.csv --L1_prev=mod_L1.csv --out=Processed --linear
+Full Example: FuelBang.py --L1=base_L1.csv --L2=base_L2.csv --L1_prev=mod_L1.csv --L1_base=base_L1.csv --out=Processed --ff_rpm=1700 --ff_press=330 --sf=5.0 --pw=0.5 --linear
 
 """
 
@@ -19,9 +34,29 @@ from docopt import docopt
 
 
 def get_params():
-    args = docopt(__doc__)
+    args = docopt(__doc__, version='1.0.0b')
+
+    # detect algorithm
+    if args["--linear"]:
+        algorithm = Smoothing.Linear
+    elif args["--relative"]:
+        algorithm = Smoothing.Relative
+    elif args["--relativeLinear"]:
+        algorithm = Smoothing.RelativeLinear
+    else:
+        raise ValueError("Unknown or no smoothing algorithm selected!")
+
+    if args["--L1_base"] is None:
+        base_path = args["--L1"]
+    else:
+        base_path = args["--L1_base"]
+
+    process_params = ProcessParams(full_fuel_rpm=int(args["--ff_rpm"]), full_fuel_press=int(args["--ff_press"]),
+                                   smoothing_factor=float(args["--sf"]), pressure_weight=float(args["--pw"]),
+                                   smoothing_algorithm=algorithm)
+
     result = Parameters(input_path_l1=args["--L1"], input_path_l2=args["--L2"], input_path_l1_prev=args["--L1_prev"],
-                        input_path_l1_base=args["--L1"], output_dir=args["--out"], process_params=None)
+                        input_path_l1_base=base_path, output_dir=args["--out"], process_params=process_params)
     return result
 
 
@@ -35,12 +70,13 @@ class ProcessParams:
     def __init__(self, full_fuel_rpm=1700, full_fuel_press=330, smoothing_factor=5.0,
                  pressure_weight=0.5, smoothing_algorithm=Smoothing.RelativeLinear):
         """
-        Instantiates a data container class for processing parameters. :param full_fuel_rpm: The maximum engine speed
-        that will not be modified, given in RPM. :param full_fuel_press: The maximum intake pressure that will not be
-        modified, given in hPa. :param smoothing_factor: Dimensionless factor for edge smoothing. Value dependent on
-        the smoothing algorithm. :param pressure_weight: A fractional weighting factor between 0 (smooth only along
-        rows/RPM) and 1 (smooth only along columns/pressure). :param smoothing_algorithm: The smoothing algorithm to
-        use.
+        Instantiates a data container class for processing parameters.
+        :param full_fuel_rpm: The maximum engine speed that will not be modified, given in RPM.
+        :param full_fuel_press: The maximum intake pressure that will not be modified, given in hPa.
+        :param smoothing_factor: Dimensionless factor for edge smoothing. Value dependent on the smoothing algorithm.
+        :param pressure_weight: A fractional weighting factor between 0 (smooth only along rows/RPM) and 1 (smooth only
+        along columns/pressure).
+        :param smoothing_algorithm: The smoothing algorithm to use.
         """
         self.full_fuel_rpm = full_fuel_rpm
         self.full_fuel_press = full_fuel_press
@@ -328,7 +364,4 @@ def main(params: Parameters):
 
 if __name__ == '__main__':
     parameters = get_params()
-    parameters.process_params = ProcessParams(full_fuel_rpm=1700, full_fuel_press=330, smoothing_factor=7,
-                                              pressure_weight=0.8, smoothing_algorithm=Smoothing.RelativeLinear)
-
     main(parameters)

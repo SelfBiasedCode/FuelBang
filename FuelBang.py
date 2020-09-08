@@ -1,4 +1,7 @@
 from enum import Enum
+from os import makedirs
+from os import path
+
 import pandas
 
 
@@ -8,14 +11,22 @@ class Smoothing(Enum):
     Linear = 3
 
 
-class BangData:
+class ProcessParams:
     def __init__(self, full_fuel_rpm=1700, full_fuel_press=330, smoothing_factor=5.0,
-                 pressure_weight=0.5, smoothing_mode=Smoothing.RelativeLinear):
+                 pressure_weight=0.5, smoothing_algorithm=Smoothing.RelativeLinear):
+        """
+        Instantiates a data container class for processing parameters. :param full_fuel_rpm: The maximum engine speed
+        that will not be modified, given in RPM. :param full_fuel_press: The maximum intake pressure that will not be
+        modified, given in hPa. :param smoothing_factor: Dimensionless factor for edge smoothing. Value dependent on
+        the smoothing algorithm. :param pressure_weight: A fractional weighting factor between 0 (smooth only along
+        rows/RPM) and 1 (smooth only along columns/pressure). :param smoothing_algorithm: The smoothing algorithm to
+        use.
+        """
         self.full_fuel_rpm = full_fuel_rpm
         self.full_fuel_press = full_fuel_press
-        self.smoothing_factor = smoothing_factor  # reduction per delta
-        self.pressure_weight = pressure_weight  # 0: smooth only over RPM, 1: smooth only over intake pressure
-        self.smoothing_mode = smoothing_mode
+        self.smoothing_factor = smoothing_factor
+        self.pressure_weight = pressure_weight
+        self.smoothing_algorithm = smoothing_algorithm
 
 
 def smoothing_relative(input_data, max_row, max_col, bang_data):
@@ -39,7 +50,7 @@ def smoothing_relative(input_data, max_row, max_col, bang_data):
             # calculate value of change
             val_rpm = 0 if weight_rpm == 0 else ((neighbour_rpm / bang_data.smoothing_factor) * weight_rpm)
             val_press = 0 if weight_pressure == 0 else (
-                        (neighbour_press / bang_data.smoothing_factor) * weight_pressure)
+                    (neighbour_press / bang_data.smoothing_factor) * weight_pressure)
 
             # apply weighted smoothing
             fuel_value = (val_press + val_rpm) / 2
@@ -179,11 +190,11 @@ def process_zero_and_smooth(input_data, bang_data):
     input_data.iloc[1:max_row, 1:max_col] = 0
 
     # smoothing
-    if bang_data.smoothing_mode is Smoothing.Relative:
+    if bang_data.smoothing_algorithm is Smoothing.Relative:
         smoothing_relative(input_data, max_row, max_col, bang_data)
-    elif bang_data.smoothing_mode is Smoothing.RelativeLinear:
+    elif bang_data.smoothing_algorithm is Smoothing.RelativeLinear:
         smoothing_relative_linear(input_data, max_row, max_col, bang_data)
-    elif bang_data.smoothing_mode is Smoothing.Linear:
+    elif bang_data.smoothing_algorithm is Smoothing.Linear:
         smoothing_linear(input_data, max_row, max_col, bang_data)
     else:
         pass
@@ -245,54 +256,62 @@ def difference(current, orig, relative):
     return result
 
 
-def main():
-    input_path_l1 = r"C:\path\to\file"
-    input_path_l2 = r"C:\path\to\file"
-    input_path_prev_comp = r"C:\path\to\file"
+class Params:
+    def __init__(self, input_path_l1, input_path_l2, input_path_l1_prev, input_path_l1_base, output_dir,
+                 process_params: ProcessParams):
+        self.input_path_l1 = input_path_l1
+        self.input_path_l2 = input_path_l2
+        self.input_path_l1_prev = input_path_l1_prev
+        self.input_path_l1_base = input_path_l1_base
+        self.output_dir = output_dir
+        self.process_params = process_params
 
-    output_path_l1 = r"C:\path\to\file"
-    output_path_l2 = r"C:\path\to\file"
-    output_path_l1_comp_base_abs = r"C:\path\to\file"
-    output_path_l1_comp_prev_abs = r"C:\path\to\file"
-    output_path_l1_comp_base_rel = r"C:\path\to\file"
-    output_path_l1_comp_prev_rel = r"C:\path\to\file"
+
+def main(params: Params):
+    # recursively create output path if required
+    makedirs(params.output_dir, exist_ok=True)
 
     # read data
-    data_l1 = pandas.read_csv(input_path_l1, header=None, delimiter='\t', dtype="Int64")
-    data_l2 = pandas.read_csv(input_path_l2, header=None, delimiter='\t', dtype="Int64")
-    data_l1_baseline = pandas.read_csv(input_path_l1, header=None, delimiter='\t', dtype="Int64")
-    data_l1_prev = pandas.read_csv(input_path_prev_comp, header=None, delimiter='\t', dtype="Int64")
+    data_l1 = pandas.read_csv(params.input_path_l1, header=None, delimiter='\t', dtype="Int64")
+    data_l2 = pandas.read_csv(params.input_path_l2, header=None, delimiter='\t', dtype="Int64")
+    data_l1_prev = pandas.read_csv(params.input_path_l1_prev, header=None, delimiter='\t', dtype="Int64")
+    data_l1_baseline = pandas.read_csv(params.input_path_l1_base, header=None, delimiter='\t', dtype="Int64")
 
     # preprocess
     sanitize_input(data_l1)
     sanitize_input(data_l2)
     sanitize_input(data_l1_prev)
-
-    bang_data1_1 = BangData(full_fuel_rpm=1700, full_fuel_press=330, smoothing_factor=7,
-                            pressure_weight=0.8, smoothing_mode=Smoothing.RelativeLinear)
+    sanitize_input(data_l1_baseline)
 
     # process
-    process_zero_and_smooth(data_l1, bang_data1_1)
-    process_zero_and_smooth(data_l2, bang_data1_1)
+    process_zero_and_smooth(data_l1, params.process_params)
+    process_zero_and_smooth(data_l2, params.process_params)
 
     # calculate absolute and relative differences
-    diff_baseline_abs = difference(data_l1, data_l1_baseline, False)
     diff_prev_abs = difference(data_l1, data_l1_prev, False)
-    diff_baseline_rel = difference(data_l1, data_l1_baseline, True)
     diff_prev_rel = difference(data_l1, data_l1_prev, True)
+    diff_base_abs = difference(data_l1, data_l1_baseline, False)
+    diff_base_rel = difference(data_l1, data_l1_baseline, True)
 
-    # posstprocess data to make it importable
+    # postprocess data to make it importable
     desanitize_input(data_l1)
     desanitize_input(data_l2)
 
     # save data
-    data_l1.to_csv(output_path_l1, header=False, index=False, sep='\t')
-    data_l2.to_csv(output_path_l2, header=False, index=False, sep='\t')
-    diff_baseline_abs.to_csv(output_path_l1_comp_base_abs, header=False, index=False, sep='\t')
-    diff_prev_abs.to_csv(output_path_l1_comp_prev_abs, header=False, index=False, sep='\t')
-    diff_baseline_rel.to_csv(output_path_l1_comp_base_rel, header=False, index=False, sep='\t')
-    diff_prev_rel.to_csv(output_path_l1_comp_prev_rel, header=False, index=False, sep='\t')
+    data_l1.to_csv(path.join(params.output_dir, "FuelBang_L1"), header=False, index=False, sep='\t')
+    data_l2.to_csv(path.join(params.output_dir, "FuelBang_L2"), header=False, index=False, sep='\t')
+    diff_prev_abs.to_csv(path.join(params.output_dir, "FuelBang_Prev_Abs_L1"), header=False, index=False, sep='\t')
+    diff_prev_rel.to_csv(path.join(params.output_dir, "FuelBang_Prev_Rel_L1"), header=False, index=False, sep='\t')
+    diff_base_abs.to_csv(path.join(params.output_dir, "FuelBang_Base_Abs_L1"), header=False, index=False, sep='\t')
+    diff_base_rel.to_csv(path.join(params.output_dir, "FuelBang_Base_Rel_L1"), header=False, index=False, sep='\t')
 
 
 if __name__ == '__main__':
-    main()
+    example_process_params = ProcessParams(full_fuel_rpm=1700, full_fuel_press=330, smoothing_factor=7,
+                                           pressure_weight=0.8, smoothing_algorithm=Smoothing.RelativeLinear)
+
+    example_params = Params(input_path_l1 = r"C:\FuelBang\mod3_L1.csv", input_path_l2=r"C:\FuelBang\mod3_L2.csv",
+                            input_path_l1_prev=r"C:\FuelBang\mod2_L1.csv",
+                            input_path_l1_base=r"C:\FuelBang\stock_L1.csv", output_dir=r"C:\FuelBang\Output",
+                            process_params=example_process_params)
+    main(example_params)

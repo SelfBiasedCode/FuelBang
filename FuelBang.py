@@ -14,11 +14,19 @@ class BangData:
         self.full_fuel_rpm = full_fuel_rpm
         self.full_fuel_press = full_fuel_press
         self.smoothing_factor = smoothing_factor  # reduction per delta
-        self.pressure_weight = pressure_weight  # 0: smooth only over RPM, 1: smooth only over hPa
+        self.pressure_weight = pressure_weight  # 0: smooth only over RPM, 1: smooth only over intake pressure
         self.smoothing_mode = smoothing_mode
 
 
 def smoothing_relative(input_data, max_row, max_col, bang_data):
+    """
+    Smooths a zeroed region using relative interpolation.
+    :param input_data: The fuel table to be smoothed
+    :param max_row: The maximum exclusive row to be processed
+    :param max_col: The maximum exclusive column to be processed
+    :param bang_data: The smoothing parameters to be used
+    :return: Nothing (in place modification of input_data)
+    """
     weight_pressure = bang_data.pressure_weight
     weight_rpm = (1 - bang_data.pressure_weight)
 
@@ -43,6 +51,14 @@ def smoothing_relative(input_data, max_row, max_col, bang_data):
 
 
 def smoothing_relative_linear(input_data, max_row, max_col, bang_data):
+    """
+        Smooths a zeroed region using both relative and linear interpolation.
+        :param input_data: The fuel table to be smoothed
+        :param max_row: The maximum exclusive row to be processed
+        :param max_col: The maximum exclusive column to be processed
+        :param bang_data: The smoothing parameters to be used
+        :return: Nothing (in place modification of input_data)
+        """
     smoothing_factor_pressure = bang_data.smoothing_factor * bang_data.pressure_weight
     smoothing_factor_rpm = bang_data.smoothing_factor * (1 - bang_data.pressure_weight)
 
@@ -70,6 +86,14 @@ def smoothing_relative_linear(input_data, max_row, max_col, bang_data):
 
 
 def smoothing_linear(input_data, max_row, max_col, bang_data):
+    """
+        Smooths a zeroed region using linear interpolation.
+        :param input_data: The fuel table to be smoothed
+        :param max_row: The maximum exclusive row to be processed
+        :param max_col: The maximum exclusive column to be processed
+        :param bang_data: The smoothing parameters to be used
+        :return: Nothing (in place modification of input_data)
+        """
     smoothing_factor_pressure = bang_data.smoothing_factor * bang_data.pressure_weight
     smoothing_factor_rpm = bang_data.smoothing_factor * (1 - bang_data.pressure_weight)
 
@@ -97,16 +121,31 @@ def smoothing_linear(input_data, max_row, max_col, bang_data):
 
 
 def sanitize_input(data_frame):
-    # TuneECU exports miss the first element, so we have to insert it manually
+    """
+    Adds am element at 0,0 to a data frame to fix a TuneECU export problem
+    :param data_frame: The data frame to be sanitized.
+    :return: Nothing (in place modification of data_frame)
+    """
     data_frame[0][0] = 0
 
 
 def desanitize_input(data_frame):
-    # delete the previously added element to prevent import problems with TuneECU
+    """
+    Deletes the element at 0,0 to prevent import problems with TuneECU
+    :param data_frame: The data frame to be desanitized.
+    :return: Nothing (in place modification of data_frame)
+    """
     data_frame[0][0] = pandas.np.NaN
 
 
 def find_limits(input_data, bang_data):
+    """
+    Finds the row and column indices within given RPM and pressure limits.
+    :param input_data: The input fuel table
+    :param bang_data: The processing parameters
+    :return: The maximum exclusive row and column to be processed
+    """
+
     # find lowest row
     max_row = 0  # exclusive
     for i in range(1, len(input_data)):
@@ -128,6 +167,12 @@ def find_limits(input_data, bang_data):
 
 
 def process_zero_and_smooth(input_data, bang_data):
+    """
+    Zeroes a defined region of a fuel table, then applies the selected smoothing function.
+    :param input_data: The fuel table to be processed
+    :param bang_data: Processing parameters
+    :return: Nothing (in place modification of input_data)
+    """
     max_row, max_col = find_limits(input_data, bang_data)
 
     # insert zeroes
@@ -145,6 +190,12 @@ def process_zero_and_smooth(input_data, bang_data):
 
 
 def process_multiply(input_data, bang_data):
+    """
+    EXPERIMENTAL
+    :param input_data: The fuel table to be processed
+    :param bang_data: Processing parameters
+    :return: Nothing (in place modification of input_data)
+        """
     max_row, max_col = find_limits(input_data, bang_data)
     weight_pressure = bang_data.pressure_weight
     weight_rpm = (1 - bang_data.pressure_weight)
@@ -166,6 +217,13 @@ def process_multiply(input_data, bang_data):
 
 
 def difference(current, orig, relative):
+    """
+    Caclulates the relative or absolute differences in cell values between two fuel tables.
+    :param current: The current fuel table
+    :param orig: The original fuel table
+    :param relative: If True: calculate relative difference, if False: calculate absolute differences
+    :return: A data frame of the same dimensions as current, containing the calculated differences
+    """
     result = current.copy()
     for row in range(1, len(result)):
         for col in range(1, len(result.columns) - 1):

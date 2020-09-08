@@ -1,8 +1,28 @@
+"""FuelBang
+
+Usage:
+  FuelBang.py --L1=<input_L1> --L2=<input_L2> --L1_prev=<previous_L1> --L1_base=<base_L1> --out=<output_directory>
+
+Options:
+
+  -h --help     Show this screen.
+  --version     Show version.
+
+"""
+
 from enum import Enum
 from os import makedirs
 from os import path
 
 import pandas
+from docopt import docopt
+
+
+def get_params():
+    args = docopt(__doc__)
+    result = Parameters(input_path_l1=args["--L1"], input_path_l2=args["--L2"], input_path_l1_prev=args["--L1_prev"],
+                        input_path_l1_base=args["--L1"], output_dir=args["--out"], process_params=None)
+    return result
 
 
 class Smoothing(Enum):
@@ -256,7 +276,7 @@ def difference(current, orig, relative):
     return result
 
 
-class Params:
+class Parameters:
     def __init__(self, input_path_l1, input_path_l2, input_path_l1_prev, input_path_l1_base, output_dir,
                  process_params: ProcessParams):
         self.input_path_l1 = input_path_l1
@@ -267,7 +287,7 @@ class Params:
         self.process_params = process_params
 
 
-def main(params: Params):
+def main(params: Parameters):
     # recursively create output path if required
     makedirs(params.output_dir, exist_ok=True)
 
@@ -307,11 +327,8 @@ def main(params: Params):
 
 
 if __name__ == '__main__':
-    example_process_params = ProcessParams(full_fuel_rpm=1700, full_fuel_press=330, smoothing_factor=7,
-                                           pressure_weight=0.8, smoothing_algorithm=Smoothing.RelativeLinear)
+    parameters = get_params()
+    parameters.process_params = ProcessParams(full_fuel_rpm=1700, full_fuel_press=330, smoothing_factor=7,
+                                              pressure_weight=0.8, smoothing_algorithm=Smoothing.RelativeLinear)
 
-    example_params = Params(input_path_l1 = r"C:\FuelBang\mod3_L1.csv", input_path_l2=r"C:\FuelBang\mod3_L2.csv",
-                            input_path_l1_prev=r"C:\FuelBang\mod2_L1.csv",
-                            input_path_l1_base=r"C:\FuelBang\stock_L1.csv", output_dir=r"C:\FuelBang\Output",
-                            process_params=example_process_params)
-    main(example_params)
+    main(parameters)

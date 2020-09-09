@@ -46,14 +46,15 @@ class FuelBang:
             self.input_path_l1_prev = input_path_l1_prev
             self.input_path_l1_base = input_path_l1_base
             self.output_dir = output_dir
-            self.fuel_processor = fuel_processor
+            self.processor = fuel_processor
 
     # # # Functions
 
     def __init__(self, params: RunParameters):
         self.params = params
 
-    def sanitize_input(self, input_data: DataFrame):
+    @staticmethod
+    def tuneecu_fix_after_export(input_data: DataFrame):
         """
         Adds am element at 0,0 to a data frame to fix a TuneECU export problem
         :param input_data: The data frame to be sanitized.
@@ -61,7 +62,8 @@ class FuelBang:
         """
         input_data[0][0] = 0
 
-    def desanitize_input(self, input_data: DataFrame):
+    @staticmethod
+    def tuneecu_fix_before_import(input_data: DataFrame):
         """
         Deletes the element at 0,0 to prevent import problems with TuneECU
         :param input_data: The data frame to be desanitized.
@@ -69,21 +71,26 @@ class FuelBang:
         """
         input_data[0][0] = pandas.np.NaN
 
-    def difference(self, current: DataFrame, orig: DataFrame, relative: bool):
+    @staticmethod
+    def difference(current: DataFrame, orig: DataFrame, calculate_relative: bool):
         """
         Caclulates the relative or absolute differences in cell values between two fuel tables.
         :param current: The current fuel table
         :param orig: The original fuel table
-        :param relative: If True: calculate relative difference, if False: calculate absolute differences
+        :param calculate_relative: If True: calculate relative difference, if False: calculate absolute differences
         :return: A data frame of the same dimensions as current, containing the calculated differences
         """
         result = current.copy()
         for row in range(1, len(result)):
             for col in range(1, len(result.columns) - 1):
                 curr_val = current.iloc[row, col]
-                orig_val = orig.iloc[row, col]
-                if relative:
-                    if orig_val == 0:
+                comp_val = orig.iloc[row, col]
+
+                # calculations
+                if calculate_relative:
+                    if comp_val == 0:
+                        # Percentage calculation is impossible when the compared value is zero.
+                        # Therefore it is set to +100%, -100% or 0 depending on the current value.
                         if curr_val > 0:
                             result.iloc[row, col] = int(+100)
                         elif curr_val < 0:
@@ -91,9 +98,11 @@ class FuelBang:
                         else:
                             result.iloc[row, col] = int(0)
                     else:
-                        result.iloc[row, col] = int(((curr_val - orig_val) / orig_val) * 100)
+                        # comp value is not zero: regular percentage calculation
+                        result.iloc[row, col] = int(((curr_val - comp_val) / comp_val) * 100)
                 else:
-                    result.iloc[row, col] = int(curr_val - orig_val)
+                    # absolute difference
+                    result.iloc[row, col] = int(curr_val - comp_val)
 
         return result
 
@@ -109,14 +118,14 @@ class FuelBang:
                                            dtype="Int64")
 
         # preprocess
-        self.sanitize_input(data_l1)
-        self.sanitize_input(data_l2)
-        self.sanitize_input(data_l1_prev)
-        self.sanitize_input(data_l1_baseline)
+        self.tuneecu_fix_after_export(data_l1)
+        self.tuneecu_fix_after_export(data_l2)
+        self.tuneecu_fix_after_export(data_l1_prev)
+        self.tuneecu_fix_after_export(data_l1_baseline)
 
         # process
-        self.params.fuel_processor.process_zero_and_smooth(data_l1)
-        self.params.fuel_processor.process_zero_and_smooth(data_l2)
+        self.params.processor.process_zero_and_smooth(data_l1)
+        self.params.processor.process_zero_and_smooth(data_l2)
 
         # calculate absolute and relative differences
         diff_prev_abs = self.difference(data_l1, data_l1_prev, False)
@@ -125,8 +134,8 @@ class FuelBang:
         diff_base_rel = self.difference(data_l1, data_l1_baseline, True)
 
         # postprocess data to make it importable
-        self.desanitize_input(data_l1)
-        self.desanitize_input(data_l2)
+        self.tuneecu_fix_before_import(data_l1)
+        self.tuneecu_fix_before_import(data_l2)
 
         # save data
         data_l1.to_csv(path.join(self.params.output_dir, "FuelBang_L1"), header=False, index=False, sep='\t')

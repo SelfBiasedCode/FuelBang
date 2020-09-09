@@ -1,6 +1,9 @@
 # PyCharm
 .idea/
 
+# Processing Data
+Processed/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
